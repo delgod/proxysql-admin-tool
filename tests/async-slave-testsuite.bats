@@ -34,6 +34,8 @@ load test-common
 
 WSREP_CLUSTER_NAME=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 MYSQL_VERSION=$(cluster_exec "select @@version")
+MYSQL_CLIENT_VERSION=$(get_mysql_version "${PXC_BASEDIR}/bin/mysql")
+
 
 # Note: 4110/4210  is left as an unprioritized node
 if [[ $WSREP_CLUSTER_NAME == "cluster_one" ]]; then

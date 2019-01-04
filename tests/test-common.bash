@@ -10,16 +10,27 @@ function exec_sql() {
   local args="--skip-column_names"
   local retvalue
   local retoutput
+  local default_auth=""
 
   if [[ $# -ge 6 ]]; then
     args=$6
   fi
 
-  retoutput=$(printf "[client]\nuser=${user}\npassword=\"${password}\"\nhost=${hostname}\nport=${port}"  \
-      | $PXC_BASEDIR/bin/mysql --defaults-file=/dev/stdin --protocol=tcp \
-            --unbuffered --batch --silent ${args} -e "${query}")
-  retvalue=$?
+  if [[ $MYSQL_CLIENT_VERSION == "8.0" ]]; then
+    default_auth="default-auth=mysql_native_password"
+  fi
 
+  retoutput=$(mysql --defaults-file=/dev/stdin --protocol=tcp \
+           --unbuffered --batch --silent ${args} -e "${query}" <<EOF
+[client]
+user=${user//%/%%}
+password="${password//%/%%}"
+host=${hostname//%/%%}
+port=${port//%/%%}
+default-auth=mysql_native_password
+EOF
+)
+  retvalue=$?
   printf "%s" "${retoutput}"
   return $retvalue
 }
@@ -308,4 +319,40 @@ function require_pxc_maint_mode() {
   if [[ $MYSQL_VERSION =~ ^5.5 || $MYSQL_VERSION =~ ^5.6 ]]; then
     skip "requires pxc_maint_mode"
   fi
+}
+
+# Extracts the version from a version string
+#
+# Globals
+#   None
+#
+# Arguments
+#   Parameter 1: the path to the mysqld binary
+#
+# Outputs
+#   Writes a string with the major/minor version numbers
+#   Such as "5.7" or "8.0"
+#   If we cannot determine the version from the string,
+#   the entire string is echoed and 1 is returned.
+#
+function get_mysql_version() {
+  local mysqld_path="$1"
+  local mysqld_version=$(${mysqld_path} --version)
+  if echo "$mysqld_version" | grep -qe "[[:space:]]5\.5\."; then
+    echo "5.5"
+  elif echo "$mysqld_version" | grep -qe "[[:space:]]5\.6\."; then
+    echo "5.6"
+  elif echo "$mysqld_version" | grep -qe "[[:space:]]5\.7\."; then
+    echo "5.7"
+  elif echo "$mysqld_version" | grep -qe "[[:space:]]8\.0\."; then
+    echo "8.0"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.2\."; then
+    echo "10.2"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.3\."; then
+    echo "10.3"
+  else
+    echo "$mysqld_version"
+    return 1
+  fi
+  return 0
 }

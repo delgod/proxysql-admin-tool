@@ -262,12 +262,24 @@ function exec_sql() {
   local more_options="${10}"
   local retvalue
   local retoutput
+  local default_auth=""
 
   debug "$lineno" "exec_sql : $user@$hostname:$port ==> $query"
 
-  retoutput=$(printf "[client]\n${client_options}\nuser=${user}\npassword=\"${password}\"\nhost=${hostname}\nport=${port}"  \
-      | timeout ${timeout_secs} mysql --defaults-file=/dev/stdin --protocol=tcp \
-              ${args} -e "$query")
+  if [[ $MYSQL_CLIENT_VERSION == "8.0" ]]; then
+    default_auth="default-auth=mysql_native_password"
+  fi
+
+  retoutput=$(timeout ${timeout_secs} mysql --defaults-file=/dev/stdin --protocol=tcp \
+           ${args} -e "${query}" <<EOF
+[client]
+user=${user//%/%%}
+password="${password//%/%%}"
+host=${hostname//%/%%}
+port=${port//%/%%}
+${default_auth}
+EOF
+)
   retvalue=$?
 
   if [[ $DEBUG -eq 1 ]]; then
@@ -989,6 +1001,45 @@ function find_online_cluster_host() {
   return 1
 }
 
+# Outputs the version string (major.minor) for the path passed in
+#
+# Globals
+#   None
+#
+# Arguments
+#   Parameter 1 : Path to the client
+#
+# Outputs
+#   The version number (major.minor).  The version numbers are
+#   normalized to two digits (to allow for string comparison).
+#   So 5.6 is outputted as "05.06"
+#
+function get_mysql_version()
+{
+
+  local mysql_path=$1
+  local version_string
+  version_string=$(${mysql_path} --version)
+
+  if echo "$version_string" | grep -qe "[[:space:]]5\.5\."; then
+    echo "5.5"
+  elif echo "$version_string" | grep -qe "[[:space:]]5\.6\."; then
+    echo "5.6"
+  elif echo "$version_string" | grep -qe "[[:space:]]5\.7\."; then
+    echo "5.7"
+  elif echo "$version_string" | grep -qe "[[:space:]]8\.0\."; then
+    echo "8.0"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.2\."; then
+    echo "10.2"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.3\."; then
+    echo "10.3"
+  else
+    echo "$version_string"
+    return 1
+  fi
+  return 0
+}
+
 function main() {
   # Monitoring user needs 'REPLICATION CLIENT' privilege
   log $LINENO "###### Percona XtraDB Cluster status ######"
@@ -1039,6 +1090,13 @@ function main() {
 #
 
 parse_args "$@"
+MYSQL_CLIENT_VERSION=$(get_mysql_version "mysql")
+if [[ $? -ne 0 ]]; then
+  error $LINENO "Cannot determine the MySQL client version from the version string"
+  log "" "-- Version string : $MYSQL_CLIENT_VERSION"
+  exit 1
+fi
+
 debug $LINENO "#### START PROXYSQL NODE MONITOR"
 main
 debug $LINENO "#### END PROXYSQL NODE MONITOR"

@@ -24,6 +24,38 @@ Usage example:
 EOF
 }
 
+# Extracts the version from a version string
+#
+# Globals
+#   None
+#
+# Arguments
+#   Parameter 1: the path to the mysqld binary
+#
+# Outputs
+#   Writes a string with the major/minor version numbers
+#   Such as "5.7" or "8.0"
+function get_mysql_version() {
+  local mysqld_path="$1"
+  local mysqld_version=$(${mysqld_path} --version)
+  if echo "$mysqld_version" | grep -qe "[[:space:]]5\.5\."; then
+    echo "5.5"
+  elif echo "$mysqld_version" | grep -qe "[[:space:]]5\.6\."; then
+    echo "5.6"
+  elif echo "$mysqld_version" | grep -qe "[[:space:]]5\.7\."; then
+    echo "5.7"
+  elif echo "$mysqld_version" | grep -qe "[[:space:]]8\.0\."; then
+    echo "8.0"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.2\."; then
+    echo "10.2"
+  elif echo "$version_string" | grep -qe "[[:space:]]10\.3\."; then
+    echo "10.3"
+  else
+    echo "$mysqld_version"
+    return 1
+  fi
+}
+
 #
 # Executes an SQL query
 #
@@ -42,10 +74,22 @@ function mysql_exec() {
   local query=$2
   local retvalue
   local retoutput
+  local default_auth=""
 
-  retoutput=$(printf "[client]\nuser=${USER}\npassword=\"${PASSWORD}\"\nhost=${HOST}\nport=${PORT}"  \
-      | mysql --defaults-file=/dev/stdin --protocol=tcp \
-            ${args} -e "${query}")
+  if [[ $MYSQL_CLIENT_VERSION == "8.0" ]]; then
+    default_auth="default-auth=mysql_native_password"
+  fi
+
+  retoutput=$(mysql --defaults-file=/dev/stdin --protocol=tcp \
+           ${args} -e "${query}" <<EOF
+[client]
+user=${USER//%/%%}
+password="${PASSWORD//%/%%}"
+host=${HOST//%/%%}
+port=${PORT//%/%%}
+${default_auth}
+EOF
+)
   retvalue=$?
 
   if [[ -n $retoutput ]]; then
@@ -150,10 +194,16 @@ function parse_args() {
 
 
 parse_args "$@"
+MYSQL_CLIENT_VERSION=$(get_mysql_version "mysql")
+if [[ $? -ne 0 ]]; then
+    echo "ERROR: Cannot determine the MySQL client version from the version string"
+    echo "-- Version string : $MYSQL_CLIENT_VERSION"
+    exit 1
+fi
 
 if [[ $DUMP_ALL -eq 1 || $DUMP_MAIN -eq 1 ]]; then
     echo "............ DUMPING MAIN DATABASE ............"
-    TABLES=$(mysql_exec -BN "SHOW TABLES $RUNTIME_OPTION" 2>/dev/null)
+    TABLES=$(mysql_exec -BN "SHOW TABLES $RUNTIME_OPTION")
     for table in $TABLES
     do
         if [[ -n $TABLE_FILTER && $table != *${TABLE_FILTER}* ]]; then
@@ -170,7 +220,7 @@ fi
 
 if [[ $DUMP_ALL -eq 1 || $DUMP_STATS -eq 1 ]]; then
     echo "............ DUMPING STATS DATABASE ............"
-    TABLES=$(mysql_exec -BN "SHOW TABLES FROM stats" 2> /dev/null)
+    TABLES=$(mysql_exec -BN "SHOW TABLES FROM stats")
     for table in $TABLES
     do
         if [[ -n $TABLE_FILTER && $table != *${TABLE_FILTER}* ]]; then
@@ -187,7 +237,7 @@ fi
 
 if [[ $DUMP_ALL -eq 1 || $DUMP_MONITOR -eq 1 ]]; then
     echo "............ DUMPING MONITOR DATABASE ............"
-    TABLES=$(mysql_exec -BN "SHOW TABLES FROM monitor" 2> /dev/null)
+    TABLES=$(mysql_exec -BN "SHOW TABLES FROM monitor")
     for table in $TABLES
     do
         if [[ -n $TABLE_FILTER && $table != *${TABLE_FILTER}* ]]; then

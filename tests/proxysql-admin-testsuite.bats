@@ -17,8 +17,13 @@ declare STATUS=()
 declare HOSTGROUPS=()
 declare COMMENTS=()
 declare WEIGHTS=()
+declare MYSQL_VERSION=""
+declare MYSQL_CLIENT_VERSION=""
 
 load test-common
+
+MYSQL_VERSION=$(get_mysql_version "${PXC_BASEDIR}/bin/mysqld")
+MYSQL_CLIENT_VERSION=$(get_mysql_version "${PXC_BASEDIR}/bin/mysql")
 
 WSREP_CLUSTER_NAME=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 
@@ -54,12 +59,9 @@ WSREP_CLUSTER_NAME=$(cluster_exec "select @@wsrep_cluster_name" 2> /dev/null)
 }
 
 @test "run proxysql-admin --syncusers ($WSREP_CLUSTER_NAME)" {
-run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --syncusers
+run sudo PATH=$WORKDIR:$PATH $WORKDIR/proxysql-admin --syncusers --debug
 echo "$output"
     [ "$status" -eq  0 ]
-}
-
-@test "run the check for --syncusers ($WSREP_CLUSTER_NAME)" {
 
   local mysql_version=$(cluster_exec "select @@version")
   local pass_field
@@ -68,7 +70,7 @@ echo "$output"
   else
     pass_field="authentication_string"
   fi
-  cluster_user_count=$(cluster_exec "select count(distinct user) from mysql.user where ${pass_field} != '' and user not in ('admin','mysql.sys','mysql.session')" -Ns)
+  cluster_user_count=$(cluster_exec "select count(distinct user) from mysql.user where ${pass_field} != '' and user not in ('admin','mysql.sys','mysql.session','mysql.infoschema')" -Ns)
 
   # HACK: this mismatch occurs because we're running the tests for cluster_two
   # right after the test for cluster_one (multi-cluster scenario), so the
